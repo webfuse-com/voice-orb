@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Voice Orb | Preview</title>
+        <script src="./voice-orb.js"></script>
+    </head>
+    <body>
+        <voice-orb id="orb" size="500"></voice-orb>
+        <script>
+            customElements
+                .whenDefined("voice-orb")
+                .then(()=>{
+                    const orb = document.getElementById("orb");
+
+                    setTimeout(() => {
+                        orb.update({
+                            colors: [
+                                [0, 200, 255],
+                                [0, 100, 255],
+                                [0, 255, 180]
+                            ],
+                            transitionTime: 1000,
+                            morphSpeed: 0.5,
+                            randomness: 0.75,
+                            rotationSpeed: 0.8
+                        });
+                    }, 2000);
+
+                    setTimeout(() => {
+                        orb.update({
+                            colors: [
+                                [0, 255, 180],
+                                [0, 200, 255],
+                                [0, 100, 255]
+                            ],
+                            transitionTime: 2500,
+                            morphSpeed: 0.125,
+                            randomness: 0,
+                            rotationSpeed: 0
+                        });
+                    }, 4000);
+                });
+        </script>
+    </body>
+</html>
