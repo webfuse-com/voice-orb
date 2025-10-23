@@ -5,7 +5,7 @@
         <script src="./voice-orb.js"></script>
     </head>
     <body>
-        <voice-orb id="orb" size="500"></voice-orb>
+        <voice-orb id="orb" size="300"></voice-orb>
         <script>
             customElements
                 .whenDefined("voice-orb")
@@ -19,7 +19,7 @@
                                 [0, 100, 255],
                                 [0, 255, 180]
                             ],
-                            transitionTime: 1000,
+                            transitionTime: 2000,
                             morphSpeed: 0.5,
                             randomness: 0.75,
                             rotationSpeed: 0.8
@@ -33,12 +33,12 @@
                                 [0, 200, 255],
                                 [0, 100, 255]
                             ],
-                            transitionTime: 2500,
+                            transitionTime: 1000,
                             morphSpeed: 0.125,
                             randomness: 0,
                             rotationSpeed: 0
                         });
-                    }, 4000);
+                    }, 8000);
                 });
         </script>
     </body>

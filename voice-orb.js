@@ -41,9 +41,7 @@
         #running = false;
         #animate;
 
-        constructor() {
-            super();
-
+        connectedCallback() {
             this.attachShadow({mode: "open"});
 
             const canvas = document.createElement("canvas");
@@ -56,9 +54,7 @@
             this.#ctx = canvas.getContext("2d", {alpha: true});
 
             this.#animate = this.animate.bind(this);
-        }
 
-        connectedCallback() {
             this.#running = true;
             requestAnimationFrame(this.#animate);
         }
