@@ -11,6 +11,13 @@
     const DEFAULT_RANDOMNESS = 0.25;
     const DEFAULT_ROTATION_SPEED = 0.25;
     const FRAME_STEP_MS = 16;
+    const HOST_CSS = `
+        display: block;
+        width: fit-content;
+        height: fit-content;
+        border-radius: 100%;
+        overflow: hidden;
+    `;
 
 
     function easeInOutCubic(t){
@@ -42,9 +49,12 @@
         #animate;
 
         connectedCallback() {
+            this.style.cssText = HOST_CSS;
+
             this.attachShadow({mode: "open"});
 
             const canvas = document.createElement("canvas");
+            canvas.style.transform = "scale(1.025)";
             this.shadowRoot.appendChild(canvas);
 
             this.size = parseInt(this.getAttribute("size")) || DEFAULT_SIZE;
