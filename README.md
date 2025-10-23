@@ -17,7 +17,7 @@
 ``` html
 <html>
   <head>
-    <script src="https://cdn.jsdelivr.net/gh/webfuse-com/voice-orb/voice-orb.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/webfuse-com/voice-orb@main/voice-orb.js"></script>
   </head>
   <body>
     <voice-orb id="orb" size="500"></voice-orb>

@@ -13,8 +13,6 @@
     const FRAME_STEP_MS = 16;
     const HOST_CSS = `
         display: block;
-        width: fit-content;
-        height: fit-content;
         border-radius: 100%;
         overflow: hidden;
     `;
@@ -28,6 +26,9 @@
 
 
     class VoiceOrbElement extends HTMLElement {
+        static observedAttributes = [ "size" ];
+
+        #canvas;
         #ctx;
         #colors = {
             current: DEFAULT_COLORS,
@@ -53,15 +54,13 @@
 
             this.attachShadow({mode: "open"});
 
-            const canvas = document.createElement("canvas");
-            canvas.style.transform = "scale(1.025)";
-            this.shadowRoot.appendChild(canvas);
+            this.#canvas = document.createElement("canvas");
+            this.#canvas.style.transform = "scale(1.025)";
+            this.shadowRoot.appendChild(this.#canvas);
 
-            this.size = parseInt(this.getAttribute("size")) || DEFAULT_SIZE;
-            canvas.width = this.size;
-            canvas.height = this.size;
+            this.#resize(this.getAttribute("size"));
 
-            this.#ctx = canvas.getContext("2d", {alpha: true});
+            this.#ctx = this.#canvas.getContext("2d", {alpha: true});
 
             this.#animate = this.animate.bind(this);
 
@@ -71,6 +70,23 @@
 
         disconnectedCallback() {
             this.#running = false;
+        }
+
+        attributeChangedCallback(name, _, newValue) {
+            if(name !== "size") return;
+
+            this.#resize(parseInt(newValue));
+        }
+
+        #resize(size) {
+            if(!this.#canvas) return;
+
+            this.size = size || DEFAULT_SIZE;
+
+            this.style.width = this.size;
+            this.style.height = this.size;
+            this.#canvas.width = this.size;
+            this.#canvas.height = this.size;
         }
 
         animate() {
@@ -179,8 +195,8 @@
         /**
          * Update orb configuration.
          * @param {Object} options
-         * @param {number[][]} [options.colors]
-         * @param {number} [options.transitionTime]
+         * @param {number[][]} [options.colors] Arbitrary amount of morphed orb colors.
+         * @param {number} [options.transitionTime] Time transitioning from the current to the updated orb configuration.
          * @param {number} [options.morphSpeed]
          * @param {number} [options.randomness]
          * @param {number} [options.rotationSpeed]
