@@ -52,6 +52,33 @@
             return mix(c1, c2, mixF);
         }
 
+        float weaveField(vec2 p, float t) {
+            float warp = sin(p.x * 18.0 + sin(p.y * 6.0 + t * 0.6) * 1.4 + t * 0.7);
+            float weft = sin(p.y * 18.0 + sin(p.x * 6.0 - t * 0.5) * 1.4 - t * 0.6);
+            float coarse = sin(p.x * 4.0 + t * 0.3) * cos(p.y * 4.0 - t * 0.25);
+            return warp * 0.45 + weft * 0.45 + coarse * 0.5;
+        }
+
+        float surface(vec2 p, float t, float asym, vec2 r1, vec2 r2) {
+            float dist = length(p);
+            float angle = atan(p.y, p.x);
+
+            vec2 q = p + asym * vec2(
+                sin(p.y * 3.0 + r1.x) * 0.1 + cos(p.y * 5.0 + r2.x) * 0.05,
+                sin(p.x * 4.0 + r1.y) * 0.1 + cos(p.x * 6.0 + r2.y) * 0.05
+            );
+
+            float radial =
+                sin(dist * 10.0 - t * 1.5) * 0.25 +
+                cos(dist * 5.5 + t * 1.2) * 0.25;
+            float swirl =
+                sin(angle * 6.0 + t * 0.8) +
+                sin(angle * 12.0 - t * 0.6) * 0.5;
+            float flow = sin(swirl + radial * 6.2831853);
+            float weave = weaveField(q, t) * 0.45;
+            return flow + weave;
+        }
+
         void main() {
             vec2 p = v_uv * 2.0 - 1.0;
             float dist = length(p);
@@ -76,19 +103,42 @@
             float t = clamp((1.0 - dist) / 0.8, 0.0, 1.0);
             float asym = t * t * (3.0 - 2.0 * t) * u_randomness;
 
-            float dx = pRot.x + asym * (sin(pRot.y * 3.0 + rx1) * 0.1 + cos(pRot.y * 5.0 + rx2) * 0.05);
-            float dy = pRot.y + asym * (sin(pRot.x * 4.0 + ry1) * 0.1 + cos(pRot.x * 6.0 + ry2) * 0.05);
-
-            float angle = atan(dy, dx);
-            float radial =
-                sin(dist * 10.0 - u_t * 1.5) * 0.25 +
-                cos(dist * 5.5 + u_t * 1.2) * 0.25;
-            float swirl =
-                sin(angle * 6.0 + u_t * 0.8) +
-                sin(angle * 12.0 - u_t * 0.6) * 0.5;
-            float phase = 0.5 + 0.5 * sin(swirl + radial * 6.2831853);
+            float h = surface(pRot, u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            float phase = 0.5 + 0.5 * h;
 
             vec3 col = sampleGradient(phase);
+
+            float e = 0.0035;
+            float hx = surface(pRot + vec2(e, 0.0), u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            float hy = surface(pRot + vec2(0.0, e), u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            vec2 grad = vec2(hx - h, hy - h) / e;
+
+            float curve = sqrt(max(0.0, 1.0 - dist * dist));
+            vec3 nSphere = vec3(p, curve);
+            vec3 nDetail = normalize(vec3(-grad * 0.18, 1.0));
+            vec3 N = normalize(nSphere * 0.65 + nDetail * 0.85);
+
+            vec3 V = vec3(0.0, 0.0, 1.0);
+            vec3 L1 = normalize(vec3(-0.45, 0.65, 0.75));
+            vec3 L2 = normalize(vec3(0.55, -0.35, 0.6));
+
+            vec3 H1 = normalize(L1 + V);
+            vec3 H2 = normalize(L2 + V);
+            float spec1 = pow(max(dot(N, H1), 0.0), 48.0);
+            float spec2 = pow(max(dot(N, H2), 0.0), 96.0) * 0.6;
+
+            vec3 T = normalize(vec3(-pRot.y, pRot.x, 0.0));
+            float TdotH = dot(T, H1);
+            float aniso = pow(max(0.0, 1.0 - TdotH * TdotH), 24.0) * 0.35;
+
+            float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+
+            float diff = max(dot(N, L1), 0.0) * 0.6 + max(dot(N, L2), 0.0) * 0.25 + 0.35;
+
+            col = col * diff;
+            col += vec3(255.0) * (spec1 + spec2) * 0.55;
+            col += vec3(255.0) * aniso;
+            col += sampleGradient(fract(phase + 0.5)) * fres * 0.45;
 
             float vignette = 1.0 - pow(1.0 - dist, 2.5);
             col *= vignette;
