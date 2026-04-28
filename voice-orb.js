@@ -10,11 +10,91 @@
     const DEFAULT_MORPH_SPEED = 1.0;
     const DEFAULT_RANDOMNESS = 0.25;
     const DEFAULT_ROTATION_SPEED = 0.25;
-    const FRAME_STEP_MS = 16;
+    const MAX_COLORS = 8;
     const HOST_CSS = `
         display: block;
         border-radius: 100%;
         overflow: hidden;
+    `;
+
+    const VERTEX_SHADER = `
+        attribute vec2 a_position;
+        varying vec2 v_uv;
+        void main() {
+            v_uv = a_position * 0.5 + 0.5;
+            gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+    `;
+    const FRAGMENT_SHADER = `
+        precision highp float;
+        varying vec2 v_uv;
+
+        uniform float u_t;
+        uniform float u_rotation;
+        uniform float u_randomness;
+        uniform int u_nColors;
+        uniform vec3 u_colors[${MAX_COLORS}];
+        uniform vec2 u_resolution;
+
+        vec3 sampleGradient(float phase) {
+            float idx = phase * float(u_nColors - 1);
+            float lowF = floor(idx);
+            float mixF = idx - lowF;
+            int low = int(lowF);
+            int high = low + 1;
+            if(high > u_nColors - 1) high = u_nColors - 1;
+            vec3 c1 = u_colors[0];
+            vec3 c2 = u_colors[0];
+            for(int i = 0; i < ${MAX_COLORS}; i++) {
+                if(i == low) c1 = u_colors[i];
+                if(i == high) c2 = u_colors[i];
+            }
+            return mix(c1, c2, mixF);
+        }
+
+        void main() {
+            vec2 p = v_uv * 2.0 - 1.0;
+            float dist = length(p);
+
+            if(dist > 1.0) {
+                gl_FragColor = vec4(0.0);
+                return;
+            }
+
+            float aa = fwidth(dist) * 1.5;
+            float alpha = 1.0 - smoothstep(1.0 - aa, 1.0, dist);
+
+            float rx1 = sin(u_t * 0.7 + 13.7) * 3.5;
+            float ry1 = cos(u_t * 0.5 + 4.2) * 3.5;
+            float rx2 = sin(u_t * 0.9 + 8.9) * 2.7;
+            float ry2 = cos(u_t * 0.8 + 2.8) * 2.7;
+
+            float cosA = cos(u_rotation);
+            float sinA = sin(u_rotation);
+            vec2 pRot = vec2(p.x * cosA + p.y * sinA, -p.x * sinA + p.y * cosA);
+
+            float t = clamp((1.0 - dist) / 0.8, 0.0, 1.0);
+            float asym = t * t * (3.0 - 2.0 * t) * u_randomness;
+
+            float dx = pRot.x + asym * (sin(pRot.y * 3.0 + rx1) * 0.1 + cos(pRot.y * 5.0 + rx2) * 0.05);
+            float dy = pRot.y + asym * (sin(pRot.x * 4.0 + ry1) * 0.1 + cos(pRot.x * 6.0 + ry2) * 0.05);
+
+            float angle = atan(dy, dx);
+            float radial =
+                sin(dist * 10.0 - u_t * 1.5) * 0.25 +
+                cos(dist * 5.5 + u_t * 1.2) * 0.25;
+            float swirl =
+                sin(angle * 6.0 + u_t * 0.8) +
+                sin(angle * 12.0 - u_t * 0.6) * 0.5;
+            float phase = 0.5 + 0.5 * sin(swirl + radial * 6.2831853);
+
+            vec3 col = sampleGradient(phase);
+
+            float vignette = 1.0 - pow(1.0 - dist, 2.5);
+            col *= vignette;
+
+            gl_FragColor = vec4(col / 255.0, alpha);
+        }
     `;
 
 
@@ -29,7 +109,9 @@
         static observedAttributes = [ "size" ];
 
         #canvas;
-        #ctx;
+        #gl;
+        #program;
+        #uniforms = {};
         #colors = {
             current: DEFAULT_COLORS,
             target: [],
@@ -48,6 +130,7 @@
         #t = 0;
         #running = false;
         #animate;
+        #lastFrameTime = 0;
 
         connectedCallback() {
             this.style.cssText = HOST_CSS;
@@ -56,15 +139,19 @@
 
             this.#canvas = document.createElement("canvas");
             this.#canvas.style.transform = "scale(1.025)";
+            this.#canvas.style.display = "block";
             this.shadowRoot.appendChild(this.#canvas);
 
             this.#resize(this.getAttribute("size"));
 
-            this.#ctx = this.#canvas.getContext("2d", {alpha: true});
+            this.#gl = this.#canvas.getContext("webgl", {alpha: true, premultipliedAlpha: false, antialias: true})
+                || this.#canvas.getContext("experimental-webgl", {alpha: true, premultipliedAlpha: false, antialias: true});
+            this.#initGL();
 
             this.#animate = this.animate.bind(this);
 
             this.#running = true;
+            this.#lastFrameTime = performance.now();
             requestAnimationFrame(this.#animate);
         }
 
@@ -81,29 +168,84 @@
         #resize(size) {
             if(!this.#canvas) return;
 
+            const dpr = window.devicePixelRatio || 1;
             this.size = size || DEFAULT_SIZE;
 
-            this.style.width = this.size;
-            this.style.height = this.size;
-            this.#canvas.width = this.size;
-            this.#canvas.height = this.size;
+            this.style.width = this.size + "px";
+            this.style.height = this.size + "px";
+            this.#canvas.style.width = this.size + "px";
+            this.#canvas.style.height = this.size + "px";
+            this.#canvas.width = this.size * dpr;
+            this.#canvas.height = this.size * dpr;
+
+            if(this.#gl) {
+                this.#gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
+            }
+        }
+
+        #initGL() {
+            const gl = this.#gl;
+            gl.getExtension("OES_standard_derivatives");
+
+            const compile = (type, src) => {
+                const s = gl.createShader(type);
+                gl.shaderSource(s, "#extension GL_OES_standard_derivatives : enable\n" + src);
+                gl.compileShader(s);
+                return s;
+            };
+
+            const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER);
+            const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            gl.useProgram(program);
+            this.#program = program;
+
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                -1, -1,  1, -1,  -1, 1,
+                -1,  1,  1, -1,   1, 1
+            ]), gl.STATIC_DRAW);
+
+            const aPos = gl.getAttribLocation(program, "a_position");
+            gl.enableVertexAttribArray(aPos);
+            gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+            this.#uniforms = {
+                t: gl.getUniformLocation(program, "u_t"),
+                rotation: gl.getUniformLocation(program, "u_rotation"),
+                randomness: gl.getUniformLocation(program, "u_randomness"),
+                nColors: gl.getUniformLocation(program, "u_nColors"),
+                colors: gl.getUniformLocation(program, "u_colors"),
+                resolution: gl.getUniformLocation(program, "u_resolution")
+            };
+
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
         }
 
         animate() {
             if(!this.#running)return;
 
-            const r = this.size / 2;
-            const img = this.#ctx.createImageData(this.size, this.size);
-            const d = img.data;
+            const now = performance.now();
+            const dt = Math.min(64, now - this.#lastFrameTime);
+            this.#lastFrameTime = now;
+
+            const gl = this.#gl;
 
             // Morph transition interpolation
-            this.#t += 0.02 * this.#morphSpeed;
+            this.#t += 0.02 * this.#morphSpeed * (dt / 16);
             const nColors = this.#colors.current.length;
 
             // Color transition interpolation
             let p = 1;
             if(this.#transition.elapsed < this.#transition.time) {
-                this.#transition.elapsed += FRAME_STEP_MS;
+                this.#transition.elapsed += dt;
                 const linear = Math.min(this.#transition.elapsed / this.#transition.time, 1);
                 p = easeInOutCubic(linear);
                 this.#colors.current = this.#colors.current.map((c, i) => {
@@ -125,70 +267,27 @@
                 (this.#transition.targetRotationSpeed - this.#transition.startRotationSpeed) * easedRot;
 
             const durationScale = Math.max(0.25, Math.min(2.0, DEFAULT_TRANSITION_MS / (this.#transition.time || DEFAULT_TRANSITION_MS)));
-            this.#rotationAngle += effectiveRotationSpeed * 0.02 * durationScale;
+            this.#rotationAngle += effectiveRotationSpeed * 0.02 * durationScale * (dt / 16);
 
-            // Asymmetry offsets
-            const rx1 = Math.sin(this.#t * 0.7 + 13.7) * 3.5;
-            const ry1 = Math.cos(this.#t * 0.5 + 4.2) * 3.5;
-            const rx2 = Math.sin(this.#t * 0.9 + 8.9) * 2.7;
-            const ry2 = Math.cos(this.#t * 0.8 + 2.8) * 2.7;
-
-            for(let y = 0; y < this.size; y++) {
-                for(let x = 0; x < this.size; x++) {
-                    const dx0 = (x - r) / r;
-                    const dy0 = (y - r) / r;
-                    const dist = Math.sqrt(dx0 * dx0 + dy0 * dy0);
-                    const i = (y * this.size + x) * 4;
-
-                    if(dist > 1) {
-                        d[i + 3] = 0;
-                        continue;
-                    }
-
-                    const cosA = Math.cos(this.#rotationAngle);
-                    const sinA = Math.sin(this.#rotationAngle);
-                    const dxRot = dx0 * cosA + dy0 * sinA;
-                    const dyRot = -dx0 * sinA + dy0 * cosA;
-
-                    const t = Math.max(0, Math.min(1, (1 - dist) / 0.8));
-                    const asym = t * t * (3 - 2 * t) * this.#randomness;
-
-                    const dx = dxRot + asym * (Math.sin(dyRot * 3 + rx1) * 0.1 + Math.cos(dyRot * 5 + rx2) * 0.05);
-                    const dy = dyRot + asym * (Math.sin(dxRot * 4 + ry1) * 0.1 + Math.cos(dxRot * 6 + ry2) * 0.05);
-
-                    const angle = Math.atan2(dy, dx);
-                    const radial =
-                        Math.sin(dist * 10 - this.#t * 1.5) * 0.25 +
-                        Math.cos(dist * 5.5 + this.#t * 1.2) * 0.25;
-                    const swirl =
-                        Math.sin(angle * 6 + this.#t * 0.8) +
-                        Math.sin(angle * 12 - this.#t * 0.6) * 0.5;
-                    const phase = 0.5 + 0.5 * Math.sin(swirl + radial * Math.PI * 2);
-
-                    const idxColor = phase * (nColors - 1);
-                    const low = Math.floor(idxColor);
-                    const high = Math.min(low + 1, nColors - 1);
-                    const mix = idxColor - low;
-
-                    const c1 = this.#colors.current[low];
-                    const c2 = this.#colors.current[high];
-                    let rCol = c1[0] * (1 - mix) + c2[0] * mix;
-                    let gCol = c1[1] * (1 - mix) + c2[1] * mix;
-                    let bCol = c1[2] * (1 - mix) + c2[2] * mix;
-
-                    const vignette = 1 - Math.pow(1 - dist, 2.5);
-                    rCol *= vignette;
-                    gCol *= vignette;
-                    bCol *= vignette;
-
-                    d[i] = rCol;
-                    d[i + 1] = gCol;
-                    d[i + 2] = bCol;
-                    d[i + 3] = 255;
-                }
+            const flatColors = new Float32Array(MAX_COLORS * 3);
+            for(let i = 0; i < nColors && i < MAX_COLORS; i++) {
+                flatColors[i * 3] = this.#colors.current[i][0];
+                flatColors[i * 3 + 1] = this.#colors.current[i][1];
+                flatColors[i * 3 + 2] = this.#colors.current[i][2];
             }
 
-            this.#ctx.putImageData(img, 0, 0);
+            gl.useProgram(this.#program);
+            gl.uniform1f(this.#uniforms.t, this.#t);
+            gl.uniform1f(this.#uniforms.rotation, this.#rotationAngle);
+            gl.uniform1f(this.#uniforms.randomness, this.#randomness);
+            gl.uniform1i(this.#uniforms.nColors, Math.min(nColors, MAX_COLORS));
+            gl.uniform3fv(this.#uniforms.colors, flatColors);
+            gl.uniform2f(this.#uniforms.resolution, this.#canvas.width, this.#canvas.height);
+
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
             requestAnimationFrame(this.#animate);
         }
 
