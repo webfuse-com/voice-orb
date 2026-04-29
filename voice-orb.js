@@ -2,8 +2,8 @@
     const TAG_NAME = "voice-orb";
     const DEFAULT_SIZE = 200;
     const DEFAULT_COLORS = [
-        [10, 124, 255],
-        [170, 153, 255],
+        [255, 255, 255],
+        [255, 255, 255],
         [255, 255, 255],
     ];
     const DEFAULT_TRANSITION_MS = 1000;
@@ -11,6 +11,7 @@
     const DEFAULT_RANDOMNESS = 0.25;
     const DEFAULT_ROTATION_SPEED = 0.25;
     const MAX_COLORS = 8;
+    const INSTANT_TRANSITION_DELAY_MS = 50;
     const HOST_CSS = `
         display: block;
         border-radius: 100%;
@@ -25,6 +26,7 @@
             gl_Position = vec4(a_position, 0.0, 1.0);
         }
     `;
+
     const FRAGMENT_SHADER = `
         precision highp float;
         varying vec2 v_uv;
@@ -52,31 +54,43 @@
             return mix(c1, c2, mixF);
         }
 
-        float weaveField(vec2 p, float t) {
-            float warp = sin(p.x * 18.0 + sin(p.y * 6.0 + t * 0.6) * 1.4 + t * 0.7);
-            float weft = sin(p.y * 18.0 + sin(p.x * 6.0 - t * 0.5) * 1.4 - t * 0.6);
-            float coarse = sin(p.x * 4.0 + t * 0.3) * cos(p.y * 4.0 - t * 0.25);
-            return warp * 0.45 + weft * 0.45 + coarse * 0.5;
-        }
-
-        float surface(vec2 p, float t, float asym, vec2 r1, vec2 r2) {
+        float folds(vec2 p, float t, float rot, float asym, vec2 r1, vec2 r2) {
             float dist = length(p);
             float angle = atan(p.y, p.x);
 
-            vec2 q = p + asym * vec2(
-                sin(p.y * 3.0 + r1.x) * 0.1 + cos(p.y * 5.0 + r2.x) * 0.05,
-                sin(p.x * 4.0 + r1.y) * 0.1 + cos(p.x * 6.0 + r2.y) * 0.05
-            );
+            float aw = sin(angle * 2.0 + t * 0.3 + rot * 0.4 + r1.x * 0.4) * 0.4
+                     + sin(angle * 3.0 - t * 0.22 - rot * 0.7 + r2.x * 0.4) * 0.25;
+            float rw = sin(dist * 2.5 - t * 0.35 + r1.y * 0.4) * 0.3
+                     + cos(dist * 4.0 + t * 0.28 + r2.y * 0.4) * 0.18;
 
-            float radial =
-                sin(dist * 10.0 - t * 1.5) * 0.25 +
-                cos(dist * 5.5 + t * 1.2) * 0.25;
-            float swirl =
-                sin(angle * 6.0 + t * 0.8) +
-                sin(angle * 12.0 - t * 0.6) * 0.5;
-            float flow = sin(swirl + radial * 6.2831853);
-            float weave = weaveField(q, t) * 0.45;
-            return flow + weave;
+            float angle2 = angle + rw * (0.5 + asym * 0.6);
+            float dist2 = dist + aw * (0.2 + asym * 0.4);
+
+            float a = sin(angle2 * 3.0 + dist2 * 4.0 - t * 0.6 + rot * 0.9);
+            float b = sin(angle2 * 5.0 - dist2 * 2.5 + t * 0.45 - rot * 1.4 + a * 1.2);
+            float c = sin(dist2 * 7.0 + t * 0.4 + b * 0.7 + rot * 0.3);
+
+            float h = a * 0.5 + b * 0.4 + c * 0.25;
+            return h / (1.0 + abs(h) * 0.6);
+        }
+
+        float patches(vec2 p, float t, float rot, vec2 r1, vec2 r2) {
+            float dist = length(p);
+            float angle = atan(p.y, p.x);
+
+            float w1 = sin(angle * 1.0 + t * 0.18 + rot * 0.5 + r1.x * 0.5) * 0.6
+                     + sin(angle * 2.0 - t * 0.13 - rot * 0.3 + r2.x * 0.5) * 0.35;
+            float w2 = cos(dist * 1.8 + t * 0.15 + r1.y * 0.5) * 0.45
+                     + sin(dist * 3.2 - t * 0.22 + r2.y * 0.5) * 0.25;
+
+            float angle2 = angle + w2 * 0.7;
+            float dist2 = dist + w1 * 0.3;
+
+            float a = sin(angle2 * 2.0 + dist2 * 2.0 - t * 0.25 - rot * 0.6);
+            float b = sin(angle2 * 3.0 - dist2 * 1.2 + t * 0.18 + rot * 1.1 + a * 1.4);
+            float c = sin(dist2 * 3.5 + t * 0.2 + b * 0.9);
+
+            return a * 0.55 + b * 0.45 + c * 0.3;
         }
 
         void main() {
@@ -96,51 +110,51 @@
             float rx2 = sin(u_t * 0.9 + 8.9) * 2.7;
             float ry2 = cos(u_t * 0.8 + 2.8) * 2.7;
 
-            float cosA = cos(u_rotation);
-            float sinA = sin(u_rotation);
-            vec2 pRot = vec2(p.x * cosA + p.y * sinA, -p.x * sinA + p.y * cosA);
+            float cosA = 1.0;
+            float sinA = 0.0;
+            vec2 pRot = p;
 
             float t = clamp((1.0 - dist) / 0.8, 0.0, 1.0);
             float asym = t * t * (3.0 - 2.0 * t) * u_randomness;
 
-            float h = surface(pRot, u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
-            float phase = 0.5 + 0.5 * h;
+            float h = folds(pRot, u_t, -u_rotation, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            float phase = 0.5 + 0.5 * patches(pRot, u_t, -u_rotation, vec2(rx1, ry1), vec2(rx2, ry2));
 
             vec3 col = sampleGradient(phase);
 
             float e = 0.0035;
-            float hx = surface(pRot + vec2(e, 0.0), u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
-            float hy = surface(pRot + vec2(0.0, e), u_t, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            float hx = folds(pRot + vec2(e, 0.0), u_t, -u_rotation, asym, vec2(rx1, ry1), vec2(rx2, ry2));
+            float hy = folds(pRot + vec2(0.0, e), u_t, -u_rotation, asym, vec2(rx1, ry1), vec2(rx2, ry2));
             vec2 grad = vec2(hx - h, hy - h) / e;
 
             float curve = sqrt(max(0.0, 1.0 - dist * dist));
             vec3 nSphere = vec3(p, curve);
             vec3 nDetail = normalize(vec3(-grad * 0.18, 1.0));
-            vec3 N = normalize(nSphere * 0.65 + nDetail * 0.85);
+            vec3 N = normalize(nSphere * 0.7 + nDetail * 0.7);
 
             vec3 V = vec3(0.0, 0.0, 1.0);
-            vec3 L1 = normalize(vec3(-0.45, 0.65, 0.75));
-            vec3 L2 = normalize(vec3(0.55, -0.35, 0.6));
+            vec3 L1 = normalize(vec3(-0.5, 0.7, 0.7));
 
             vec3 H1 = normalize(L1 + V);
-            vec3 H2 = normalize(L2 + V);
-            float spec1 = pow(max(dot(N, H1), 0.0), 48.0);
-            float spec2 = pow(max(dot(N, H2), 0.0), 96.0) * 0.6;
+            float spec1 = pow(max(dot(N, H1), 0.0), 56.0);
 
             vec3 T = normalize(vec3(-pRot.y, pRot.x, 0.0));
             float TdotH = dot(T, H1);
-            float aniso = pow(max(0.0, 1.0 - TdotH * TdotH), 24.0) * 0.35;
+            float aniso = pow(max(0.0, 1.0 - TdotH * TdotH), 18.0) * 0.22;
 
             float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
 
-            float diff = max(dot(N, L1), 0.0) * 0.6 + max(dot(N, L2), 0.0) * 0.25 + 0.35;
+            float diff = max(dot(N, L1), 0.0) * 0.7 + 0.4;
 
             col = col * diff;
-            col += vec3(255.0) * (spec1 + spec2) * 0.55;
-            col += vec3(255.0) * aniso;
-            col += sampleGradient(fract(phase + 0.5)) * fres * 0.45;
+            col += vec3(255.0) * spec1 * 0.4;
+            col += vec3(255.0) * aniso * 0.7;
+            col += sampleGradient(fract(phase + 0.5)) * fres * 0.35;
 
-            float vignette = 1.0 - pow(1.0 - dist, 2.5);
+            float coreGlow = 1.0 - smoothstep(0.0, 0.55, dist);
+            col += sampleGradient(fract(phase + 0.25)) * coreGlow * 0.35;
+
+            float vignette = 1.0 - pow(1.0 - dist, 2.5) * 0.55;
             col *= vignette;
 
             gl_FragColor = vec4(col / 255.0, alpha);
@@ -170,8 +184,12 @@
         #transition = {
             time: 0,
             elapsed: 0,
-            startRotationSpeed: 0,
-            targetRotationSpeed: 0
+            startRotationSpeed: DEFAULT_ROTATION_SPEED,
+            targetRotationSpeed: DEFAULT_ROTATION_SPEED,
+            startMorphSpeed: DEFAULT_MORPH_SPEED,
+            targetMorphSpeed: DEFAULT_MORPH_SPEED,
+            startRandomness: DEFAULT_RANDOMNESS,
+            targetRandomness: DEFAULT_RANDOMNESS
         };
         #morphSpeed = DEFAULT_MORPH_SPEED;
         #randomness = DEFAULT_RANDOMNESS;
@@ -181,6 +199,7 @@
         #running = false;
         #animate;
         #lastFrameTime = 0;
+        #startTime = 0;
 
         connectedCallback() {
             this.style.cssText = HOST_CSS;
@@ -202,6 +221,8 @@
 
             this.#running = true;
             this.#lastFrameTime = performance.now();
+            this.#startTime = this.#lastFrameTime;
+
             requestAnimationFrame(this.#animate);
         }
 
@@ -288,8 +309,14 @@
 
             const gl = this.#gl;
 
+            const rotProgress = Math.min(this.#transition.elapsed / (this.#transition.time || 1), 1);
+            const easedRot = easeInOutCubic(rotProgress);
+
             // Morph transition interpolation
-            this.#t += 0.02 * this.#morphSpeed * (dt / 16);
+            const effectiveMorphSpeed =
+                this.#transition.startMorphSpeed +
+                (this.#transition.targetMorphSpeed - this.#transition.startMorphSpeed) * easedRot;
+            this.#t += 0.02 * effectiveMorphSpeed * (dt / 16);
             const nColors = this.#colors.current.length;
 
             // Color transition interpolation
@@ -310,14 +337,15 @@
             }
 
             // Rotation transition interpolation
-            const rotProgress = Math.min(this.#transition.elapsed / (this.#transition.time || 1), 1);
-            const easedRot = easeInOutCubic(rotProgress);
             const effectiveRotationSpeed =
                 this.#transition.startRotationSpeed +
                 (this.#transition.targetRotationSpeed - this.#transition.startRotationSpeed) * easedRot;
 
-            const durationScale = Math.max(0.25, Math.min(2.0, DEFAULT_TRANSITION_MS / (this.#transition.time || DEFAULT_TRANSITION_MS)));
-            this.#rotationAngle += effectiveRotationSpeed * 0.02 * durationScale * (dt / 16);
+            this.#rotationAngle += effectiveRotationSpeed * 0.02 * (dt / 16);
+
+            const effectiveRandomness =
+                this.#transition.startRandomness +
+                (this.#transition.targetRandomness - this.#transition.startRandomness) * easedRot;
 
             const flatColors = new Float32Array(MAX_COLORS * 3);
             for(let i = 0; i < nColors && i < MAX_COLORS; i++) {
@@ -329,7 +357,7 @@
             gl.useProgram(this.#program);
             gl.uniform1f(this.#uniforms.t, this.#t);
             gl.uniform1f(this.#uniforms.rotation, this.#rotationAngle);
-            gl.uniform1f(this.#uniforms.randomness, this.#randomness);
+            gl.uniform1f(this.#uniforms.randomness, effectiveRandomness);
             gl.uniform1i(this.#uniforms.nColors, Math.min(nColors, MAX_COLORS));
             gl.uniform3fv(this.#uniforms.colors, flatColors);
             gl.uniform2f(this.#uniforms.resolution, this.#canvas.width, this.#canvas.height);
@@ -353,14 +381,45 @@
         update(options = {}) {
             if(!Array.isArray(options.colors) || options.colors.length === 0)return;
 
-            this.#colors.target = (options.colors ?? this.#colors.current)
+            const incomingColors = options.colors
                 .map(c => Array.isArray(c) ? [...c.slice(0, 3)] : [0, 0, 0]);
+
+            const sinceStart = performance.now() - this.#startTime;
+            const applyInstantly = sinceStart < INSTANT_TRANSITION_DELAY_MS;
+
+            if(applyInstantly) {
+                this.#colors.current = incomingColors.map(c => [...c]);
+                this.#colors.start = incomingColors.map(c => [...c]);
+                this.#colors.target = incomingColors;
+
+                this.#morphSpeed = options.morphSpeed ?? this.#morphSpeed;
+                this.#randomness = Math.max(0, Math.min(1, options.randomness ?? this.#randomness));
+                this.#rotationSpeed = options.rotationSpeed ?? this.#rotationSpeed;
+
+                this.#transition.time = 0;
+                this.#transition.elapsed = 0;
+                this.#transition.startMorphSpeed = this.#morphSpeed;
+                this.#transition.targetMorphSpeed = this.#morphSpeed;
+                this.#transition.startRandomness = this.#randomness;
+                this.#transition.targetRandomness = this.#randomness;
+                this.#transition.startRotationSpeed = this.#rotationSpeed;
+                this.#transition.targetRotationSpeed = this.#rotationSpeed;
+                return;
+            }
+
+            this.#colors.target = incomingColors;
             this.#colors.start = this.#colors.current.map(c => [...c]);
 
             this.#transition.time = options.transitionTime ?? DEFAULT_TRANSITION_MS;
             this.#transition.elapsed = 0;
+
+            this.#transition.startMorphSpeed = this.#morphSpeed;
             this.#morphSpeed = options.morphSpeed ?? this.#morphSpeed;
+            this.#transition.targetMorphSpeed = this.#morphSpeed;
+
+            this.#transition.startRandomness = this.#randomness;
             this.#randomness = Math.max(0, Math.min(1, options.randomness ?? this.#randomness));
+            this.#transition.targetRandomness = this.#randomness;
 
             this.#transition.startRotationSpeed = this.#rotationSpeed;
             this.#rotationSpeed = options.rotationSpeed ?? this.#rotationSpeed;

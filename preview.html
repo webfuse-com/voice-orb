@@ -12,31 +12,30 @@
                 .then(()=>{
                     const orb = document.getElementById("orb");
 
-                    setTimeout(() => {
-                        orb.update({
-                            colors: [
-                                [0, 200, 255],
-                                [0, 100, 255],
-                                [0, 255, 180]
-                            ],
-                            transitionTime: 2000,
-                            morphSpeed: 0.5,
-                            randomness: 0.75,
-                            rotationSpeed: 0.8
-                        });
-                    }, 2000);
+                    orb.update({
+                        colors: [
+                            [245, 203, 76],
+                            [224, 134, 211],
+                            [231, 177, 13]
+                        ],
+                        transitionTime: 2000,
+                        morphSpeed: 0.5,
+                        randomness: 0.75,
+                        rotationSpeed: 0.8
+                    });
 
                     setTimeout(() => {
                         orb.update({
                             colors: [
-                                [0, 255, 180],
-                                [0, 200, 255],
-                                [0, 100, 255]
+                                
+                                [14, 59, 67],
+                                [89, 238, 208],
+                                [14, 59, 67]
                             ],
                             transitionTime: 1000,
                             morphSpeed: 0.125,
                             randomness: 0,
-                            rotationSpeed: 0
+                            rotationSpeed: 0.1
                         });
                     }, 8000);
                 });
